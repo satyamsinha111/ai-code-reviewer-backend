@@ -7,6 +7,7 @@ import 'dotenv/config';
 import express from 'express';
 import { verifyWebhookSignature, handleWebhook } from './webhook.js';
 import { connectDB, closeDB } from './db.js';
+import { redirectToGitHub, handleGitHubCallback } from './githubAuth.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -22,6 +23,15 @@ app.get('/', (req, res) => {
 
 app.get('/health', (req, res) => {
   res.status(200).send('ok');
+});
+
+// GitHub OAuth: authorize MergeMonk (store user email/details in DB; only these users can use the app)
+app.get('/auth/github', redirectToGitHub);
+app.get('/auth/github/callback', (req, res) => {
+  handleGitHubCallback(req, res).catch((err) => {
+    console.error('OAuth callback error:', err);
+    if (!res.headersSent) res.status(500).send('Authorization failed');
+  });
 });
 
 // Webhook endpoint: verify signature (scaffold), then handle event

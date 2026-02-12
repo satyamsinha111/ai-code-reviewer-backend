@@ -5,6 +5,7 @@
 import { createInstallationClient } from './githubClient.js';
 import { reviewPullRequest } from './prService.js';
 import { getDB } from './db.js';
+import { isInstallationAuthorized, isAccountAuthorized, getAuthorizedUserDetails } from './auth.js';
 
 const SUPPORTED_PR_ACTIONS = new Set(['opened', 'synchronize']);
 const ACTIVE_USERS_COLLECTION = 'active_users';
@@ -31,6 +32,7 @@ export function verifyWebhookSignature(req, res, next) {
 
 /**
  * Handle installation event: on "created", upsert the installer into active_users.
+ * If this account has completed GitHub OAuth, authorized is true and we store their email/name.
  */
 async function handleInstallation(payload) {
   const action = payload.action;
@@ -47,22 +49,29 @@ async function handleInstallation(payload) {
   }
   const account = installation.account || {};
   const repos = payload.repositories || [];
+  const accountLogin = account.login ?? null;
+  const authorized = await isAccountAuthorized(accountLogin);
+  const userDetails = authorized ? await getAuthorizedUserDetails(accountLogin) : null;
   const doc = {
-    _id: installation.id,
     installationId: installation.id,
-    accountLogin: account.login ?? null,
+    accountLogin,
     accountType: account.type ?? null,
     avatarUrl: account.avatar_url ?? null,
     repositoryCount: Array.isArray(repos) ? repos.length : 0,
     installedAt: new Date(),
+    authorized,
+    email: userDetails?.email ?? null,
+    name: userDetails?.name ?? null,
   };
   try {
     await db.collection(ACTIVE_USERS_COLLECTION).updateOne(
-      { _id: installation.id },
+      { installationId: installation.id },
       { $set: doc },
       { upsert: true }
     );
-    console.log(`Active user recorded: installation ${installation.id} (${account.login ?? 'unknown'})`);
+    console.log(
+      `Active user recorded: installation ${installation.id} (${accountLogin ?? 'unknown'}) authorized=${authorized} email=${doc.email ?? '—'}`
+    );
   } catch (err) {
     console.error('Failed to record active user:', err.message);
     throw err;
@@ -103,6 +112,18 @@ export async function handleWebhook(req, res) {
   if (!installationId) {
     console.error('No installation id in webhook payload');
     return res.status(400).json({ error: 'Missing installation id' });
+  }
+
+  const authorized = await isInstallationAuthorized(installationId);
+  if (!authorized) {
+    console.warn(`Installation ${installationId} is not authorized; rejecting PR webhook`);
+    const baseUrl = (process.env.BASE_URL || '').replace(/\/$/, '');
+    const authUrl = baseUrl ? `${baseUrl}/auth/github` : '/auth/github';
+    return res.status(403).json({
+      error: 'Installation not authorized',
+      message: 'Authorize MergeMonk first by signing in with GitHub.',
+      authorizeUrl: authUrl,
+    });
   }
 
   // Installation ID comes from the payload per request (different per repo/org); no need for .env
