@@ -5,7 +5,8 @@ GitHub App that automatically reviews pull requests. It comments on PRs when the
 ## Features
 
 - Listens for `pull_request` events (actions: `opened`, `synchronize`) and `installation` (action: `created`)
-- When MongoDB is configured, records each new app installation in the `active_users` collection
+- **Authorization:** users must complete **GitHub OAuth** (visit `/auth/github`) before they can use the app. Their **email**, name, and profile are stored in MongoDB. Only installs whose GitHub account has authorized get PR reviews.
+- When MongoDB is configured, records each app installation in `active_users` (with `authorized`, `email`, `name`, etc.) and OAuth users in `users`.
 - Fetches PR details and changed files via GitHub API
 - **AI review (OpenAI):** when `OPENAI_API_KEY` is set, MergeMonk uses OpenAI for production-grade reviews:
   - **Summary** and **code quality rating** (1–10)
@@ -43,11 +44,20 @@ GitHub App that automatically reviews pull requests. It comments on PRs when the
    - `OPENAI_API_KEY` – OpenAI API key (optional; if set, AI review with summary and quality rating is used)
    - `OPENAI_MODEL` – Optional; defaults to `gpt-4o-mini` (use `gpt-4o` for deeper security/design/scalability reviews)
    - `MERGEMONK_REQUEST_CHANGES` – Optional; default `true`. Set to `false` to post review as comment only (no merge block).
+   - **GitHub OAuth** (for authorization): create an OAuth App at GitHub → Developer settings → OAuth Apps. Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `BASE_URL` (e.g. `https://your-app.railway.app`). Users visit `BASE_URL/auth/github` to authorize; their email and profile are saved to MongoDB. Only authorized accounts can use the app after installing it.
    - `PORT` – Server port (default 3000; Railway sets this)
 
    Installation ID is taken from each webhook payload (`installation.id`), so it does not need to be set in .env and works for every repo/org where the app is installed.
 
-4. **Run locally**
+4. **Authorization flow**
+
+   Users must authorize with GitHub before their installation can use MergeMonk:
+
+   - Create a **GitHub OAuth App** (Developer settings → OAuth Apps), set Authorization callback URL to `BASE_URL/auth/github/callback`.
+   - Users visit `BASE_URL/auth/github` and sign in with GitHub; their **email**, name, and profile are stored in the `users` collection.
+   - When they install the MergeMonk GitHub App, the installation is linked to their account; their email/name are copied into `active_users` and `authorized` is set to true. Only then will PR webhooks be processed.
+
+5. **Run locally**
 
    ```bash
    npm start
@@ -58,6 +68,14 @@ GitHub App that automatically reviews pull requests. It comments on PRs when the
    ```bash
    npm run dev
    ```
+
+## API
+
+- `GET /` – JSON app name and status
+- `GET /health` – 200 ok
+- `GET /auth/github` – Redirects to GitHub OAuth to authorize (store user email/details in DB)
+- `GET /auth/github/callback` – OAuth callback; do not call directly
+- `POST /webhook` – GitHub webhook; handles `installation` (created → records in `active_users` with email/details) and `pull_request` (opened, synchronize; only for authorized installations)
 
 ## Deploy to Railway
 
@@ -85,25 +103,22 @@ Set `MERGEMONK_REQUEST_CHANGES=false` in your environment if you want MergeMonk 
 
 ```
 /src
-  server.js       – Express app, routes, PORT
-  webhook.js      – POST /webhook, x-github-event, signature scaffold, pull_request handler
+  server.js       – Express app, routes (/, /health, /auth/github, /webhook)
+  webhook.js      – POST /webhook, installation + pull_request handler, active_users upsert
+  githubAuth.js   – GitHub OAuth (redirect, callback), store user email/profile in users collection
+  auth.js         – isInstallationAuthorized, isAccountAuthorized (OAuth-based)
   githubClient.js – createInstallationClient (Octokit + auth-app)
   prService.js    – fetch PR + files, runAIReview or runReview, createReview
   reviewEngine.js – runAIReview (OpenAI), runReview (rule-based fallback)
   openaiService.js – getAIReview (summary, quality rating, review body, inline comments)
-  diffUtils.js      – parse patches, map (path, line) to (path, position) for GitHub review API
+  diffUtils.js    – parse patches, map (path, line) to (path, position) for GitHub review API
+  db.js           – MongoDB connect, getDB, validate MONGODB_URI
 .env.example
 package.json
 README.md
 ```
 
-## API
-
-- `GET /` – JSON app name and status
-- `GET /health` – 200 ok (for probes)
-- `POST /webhook` – GitHub webhook; handles `installation` (created → records in `active_users`) and `pull_request` (opened, synchronize)
-
 ## Security
 
 - Webhook signature verification is scaffolded in `webhook.js` (`verifyWebhookSignature`). For production, verify `x-hub-signature-256` using the raw body and `WEBHOOK_SECRET` with HMAC-SHA256.
-- Keep `PRIVATE_KEY`, `WEBHOOK_SECRET`, and `OPENAI_API_KEY` in environment variables only; never commit them.
+- Keep `PRIVATE_KEY`, `WEBHOOK_SECRET`, `GITHUB_CLIENT_SECRET`, and `OPENAI_API_KEY` in environment variables only; never commit them.
