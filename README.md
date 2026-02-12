@@ -4,7 +4,8 @@ GitHub App that automatically reviews pull requests. It comments on PRs when the
 
 ## Features
 
-- Listens for `pull_request` events (actions: `opened`, `synchronize`)
+- Listens for `pull_request` events (actions: `opened`, `synchronize`) and `installation` (action: `created`)
+- When MongoDB is configured, records each new app installation in the `active_users` collection
 - Fetches PR details and changed files via GitHub API
 - **AI review (OpenAI):** when `OPENAI_API_KEY` is set, MergeMonk uses OpenAI for production-grade reviews:
   - **Summary** and **code quality rating** (1–10)
@@ -20,6 +21,7 @@ GitHub App that automatically reviews pull requests. It comments on PRs when the
 
 1. **Create a GitHub App** (GitHub → Settings → Developer settings → GitHub Apps → New GitHub App).
    - Set webhook URL to your deployed URL (e.g. `https://your-app.railway.app/webhook`) and optionally a secret.
+   - Under **Permissions & events**, subscribe to **Installation** (and **Pull requests**) so the app receives `installation` and `pull_request` webhooks.
    - Note the **App ID**.
    - Generate a **Private key** and download it.
    - Install the app on a repo/org (the installation ID is sent with each webhook, so you don’t need to set it in .env).
@@ -99,7 +101,7 @@ README.md
 
 - `GET /` – JSON app name and status
 - `GET /health` – 200 ok (for probes)
-- `POST /webhook` – GitHub webhook; handles `pull_request` only (opened, synchronize)
+- `POST /webhook` – GitHub webhook; handles `installation` (created → records in `active_users`) and `pull_request` (opened, synchronize)
 
 ## Security
 
