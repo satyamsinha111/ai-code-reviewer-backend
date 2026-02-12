@@ -6,6 +6,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { verifyWebhookSignature, handleWebhook } from './webhook.js';
+import { connectDB, closeDB } from './db.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -31,6 +32,22 @@ app.post('/webhook', verifyWebhookSignature, (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`MergeMonk listening on port ${PORT}`);
+async function start() {
+  await connectDB();
+  const server = app.listen(PORT, () => {
+    console.log(`MergeMonk listening on port ${PORT}`);
+  });
+
+  const shutdown = async () => {
+    server.close(() => {
+      closeDB().then(() => process.exit(0));
+    });
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+start().catch((err) => {
+  console.error('Startup failed:', err);
+  process.exit(1);
 });
