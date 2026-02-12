@@ -6,6 +6,7 @@
 import { parsePatchesForComments, commentsToPositions } from './diffUtils.js';
 import { runAIReview, runReview } from './reviewEngine.js';
 import { createPatchPullRequest } from './patchPrService.js';
+import { generatePatchForFile } from './openaiService.js';
 
 /**
  * Fetches PR details and changed files, runs AI review (or fallback), and posts the review.

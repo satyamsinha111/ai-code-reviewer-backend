@@ -65,7 +65,7 @@ Rules:
 - securityAssessment, systemDesignAssessment, scalabilityAssessment: always fill; be specific to this diff. If a dimension is not applicable, say so briefly (e.g. "No server/DB changes; N/A for scalability.").
 - Inline comments: Add a comment for every significant issue you find across ALL files in the diff. Do NOT limit to 2–3 comments. Cover security, design, scalability, and bugs in each relevant file; multiple comments per file are expected when there are multiple issues. Use line numbers from the NEW file. Path must match a file path exactly as shown in the diff. Be actionable and brief per comment.
 - suggestedPrompt: REQUIRED for every comment. One concise instruction the developer can paste into Cursor/Copilot/etc. to fix the issue—e.g. "Add null check and return early", "Use parameterized query instead of string concatenation", "Extract this to a constant and document the magic number". No backticks or code blocks inside suggestedPrompt; keep it one line when possible.
-- filePatches: OPTIONAL. Array of { "path": "exact/filename", "patch": "unified diff string" }. For each file where you suggested fixes, include a single unified diff that applies all fixes for that file. The patch must apply cleanly to the current file content (use correct line numbers from the diff you were given). path must match a file from the PR exactly. Omit filePatches entirely or use [] if you prefer not to emit patches.
+- filePatches: REQUIRED when you have at least one comment. Array of { "path": "exact/filename", "patch": "unified diff string" }. For EVERY file that has at least one comment, include exactly one entry: "path" must match the file path exactly as in the diff; "patch" must be a valid unified diff for that file only (first line --- a/path, second line +++ b/path, then @@ -oldStart,oldCount +newStart,newCount @@ and lines prefixed with space/-/+). Use the exact line numbers and context from the diff you were given so the patch applies cleanly. This is used to create a follow-up PR the user can merge.
 - Output only the JSON object.`;
 
 /**
@@ -138,4 +138,47 @@ export async function getAIReview(prTitle, prBody, files) {
     comments,
     filePatches,
   };
+}
+
+const PATCH_GEN_SYSTEM = `You output only a single unified diff that applies the requested fixes to the given file. No other text, no markdown, no explanation.
+Rules:
+- Output starts with "--- a/<path>" and "+++ b/<path>" (use the exact path provided).
+- Then one or more hunks: @@ -oldStart,oldCount +newStart,newCount @@ followed by context (space), removed (-), added (+) lines.
+- Line numbers must match the current file content so the patch applies cleanly.
+- Output only the raw unified diff.`;
+
+/**
+ * Asks the AI to generate a unified diff that applies the suggested fixes to a file.
+ * Used when the main review did not return filePatches (fallback).
+ * @param {string} path - File path (used in diff header)
+ * @param {string} fileContent - Current file content
+ * @param {Array<{ line: number, body: string, suggestedPrompt: string }>} comments - Comments for this file
+ * @returns {Promise<string|null>} Unified diff string or null
+ */
+export async function generatePatchForFile(path, fileContent, comments) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || !comments.length) return null;
+
+  const openai = new OpenAI({ apiKey });
+  const lines = fileContent.split('\n');
+  const commentList = comments
+    .map((c) => `Line ${c.line}: ${c.suggestedPrompt || c.body}`)
+    .join('\n');
+  const userPrompt = `File path: ${path}\n\nCurrent content:\n\`\`\`\n${fileContent.slice(0, 12000)}${fileContent.length > 12000 ? '\n... (truncated)' : ''}\n\`\`\`\n\nApply these fixes (one per line):\n${commentList}\n\nOutput only the unified diff for this file.`;
+
+  const completion = await openai.chat.completions.create({
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: PATCH_GEN_SYSTEM },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.2,
+  });
+
+  const content = completion.choices[0]?.message?.content?.trim();
+  if (!content) return null;
+  // If the model wrapped in markdown, strip the fence
+  const stripped = content.replace(/^```(?:diff)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+  if (!stripped.includes('--- ') || !stripped.includes('+++ ')) return null;
+  return stripped;
 }
