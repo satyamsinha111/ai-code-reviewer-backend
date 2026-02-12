@@ -1,10 +1,11 @@
 /**
  * PR service: fetches PR details and files, runs AI or rule-based review, posts review.
- * Converts (path, line) comments to (path, position) so GitHub can resolve them.
+ * Optionally creates a "possible patch" PR with AI-suggested fixes for the user to review and merge.
  */
 
 import { parsePatchesForComments, commentsToPositions } from './diffUtils.js';
 import { runAIReview, runReview } from './reviewEngine.js';
+import { createPatchPullRequest } from './patchPrService.js';
 
 /**
  * Fetches PR details and changed files, runs AI review (or fallback), and posts the review.
@@ -25,11 +26,13 @@ export async function reviewPullRequest(octokit, owner, repo, pullNumber) {
   let body;
   let comments;
 
+  let filePatches = [];
   if (process.env.OPENAI_API_KEY) {
     try {
       const result = await runAIReview(prTitle, prBody, files);
       body = result.body;
       comments = result.comments;
+      filePatches = result.filePatches || [];
     } catch (err) {
       console.warn('AI review failed, using rule-based fallback:', err.message);
       const result = runReview(files);
@@ -64,4 +67,25 @@ export async function reviewPullRequest(octokit, owner, repo, pullNumber) {
   }
 
   await octokit.pulls.createReview(review);
+
+  // Create a "possible patch" PR when the AI returned file patches and the feature is enabled.
+  if (
+    filePatches.length > 0 &&
+    process.env.MERGEMONK_CREATE_PATCH_PR !== 'false'
+  ) {
+    try {
+      const patchPr = await createPatchPullRequest(octokit, owner, repo, pr, filePatches);
+      if (patchPr?.pullRequestUrl) {
+        // Optionally add a comment to the original PR linking to the patch PR.
+        await octokit.issues.createComment({
+          owner,
+          repo,
+          issue_number: pullNumber,
+          body: `MergeMonk created a [suggested patch PR](${patchPr.pullRequestUrl}) you can review and merge into this branch.`,
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to create patch PR:', err.message);
+    }
+  }
 }

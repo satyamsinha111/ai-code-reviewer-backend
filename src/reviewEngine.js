@@ -50,6 +50,7 @@ export async function runAIReview(prTitle, prBody, files) {
   return {
     body: sections,
     comments,
+    filePatches: result.filePatches || [],
   };
 }
 

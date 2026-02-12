@@ -54,6 +54,9 @@ Your response must be valid JSON only (no markdown fence, no extra text). Use th
       "body": "Inline: security/design/scalability/bug—actionable, brief",
       "suggestedPrompt": "A single sentence or short instruction the developer can copy-paste into Cursor (or another AI) to fix this issue; e.g. 'Add input validation and sanitization here to prevent XSS' or 'Replace with a structured logger and remove PII from the log message'."
     }
+  ],
+  "filePatches": [
+    { "path": "exact/file/path.js", "patch": "Unified diff for this file only: lines starting with --- a/path, +++ b/path, then @@ -start,count +start,count and -/+/context lines. One entry per file you can safely patch." }
   ]
 }
 
@@ -62,6 +65,7 @@ Rules:
 - securityAssessment, systemDesignAssessment, scalabilityAssessment: always fill; be specific to this diff. If a dimension is not applicable, say so briefly (e.g. "No server/DB changes; N/A for scalability.").
 - Inline comments: Add a comment for every significant issue you find across ALL files in the diff. Do NOT limit to 2–3 comments. Cover security, design, scalability, and bugs in each relevant file; multiple comments per file are expected when there are multiple issues. Use line numbers from the NEW file. Path must match a file path exactly as shown in the diff. Be actionable and brief per comment.
 - suggestedPrompt: REQUIRED for every comment. One concise instruction the developer can paste into Cursor/Copilot/etc. to fix the issue—e.g. "Add null check and return early", "Use parameterized query instead of string concatenation", "Extract this to a constant and document the magic number". No backticks or code blocks inside suggestedPrompt; keep it one line when possible.
+- filePatches: OPTIONAL. Array of { "path": "exact/filename", "patch": "unified diff string" }. For each file where you suggested fixes, include a single unified diff that applies all fixes for that file. The patch must apply cleanly to the current file content (use correct line numbers from the diff you were given). path must match a file from the PR exactly. Omit filePatches entirely or use [] if you prefer not to emit patches.
 - Output only the JSON object.`;
 
 /**
@@ -119,6 +123,10 @@ export async function getAIReview(prTitle, prBody, files) {
     suggestedPrompt: typeof c.suggestedPrompt === 'string' ? c.suggestedPrompt.trim() : '',
   }));
 
+  const filePatches = (Array.isArray(parsed.filePatches) ? parsed.filePatches : [])
+    .filter((fp) => fp && typeof fp.path === 'string' && typeof fp.patch === 'string')
+    .map((fp) => ({ path: fp.path.trim(), patch: fp.patch }));
+
   return {
     summary: parsed.summary ?? '',
     qualityRating: typeof parsed.qualityRating === 'number' ? parsed.qualityRating : 5,
@@ -128,5 +136,6 @@ export async function getAIReview(prTitle, prBody, files) {
     scalabilityAssessment: parsed.scalabilityAssessment ?? '',
     reviewBody: parsed.reviewBody ?? '',
     comments,
+    filePatches,
   };
 }
