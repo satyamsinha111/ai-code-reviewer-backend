@@ -1,0 +1,21 @@
+{
+  "name": "mergemonk",
+  "version": "1.0.0",
+  "description": "GitHub App that reviews pull requests automatically",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@octokit/auth-app": "^6.0.0",
+    "@octokit/rest": "^20.0.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "openai": "^4.73.0"
+  }
+}
