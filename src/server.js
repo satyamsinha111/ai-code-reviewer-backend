@@ -48,6 +48,15 @@ async function start() {
 }
 
 start().catch((err) => {
-  console.error('Startup failed:', err);
+  console.error('Startup failed');
+  console.error('  Error: %s', err.message);
+  if (err.name) console.error('  Name: %s', err.name);
+  if (err.code) console.error('  Code: %s', err.code);
+  if (err.cause) {
+    const c = err.cause;
+    console.error('  Cause: %s', c.message || c);
+    if (c.code) console.error('  Cause code: %s', c.code);
+  }
+  if (err.stack) console.error(err.stack);
   process.exit(1);
 });
