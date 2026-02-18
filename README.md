@@ -103,6 +103,8 @@ README.md
 - `GET /health` – 200 ok (for probes)
 - `POST /webhook` – GitHub webhook; handles `installation` (created → records in `active_users`) and `pull_request` (opened, synchronize)
 
+
+
 ## Security
 
 - Webhook signature verification is scaffolded in `webhook.js` (`verifyWebhookSignature`). For production, verify `x-hub-signature-256` using the raw body and `WEBHOOK_SECRET` with HMAC-SHA256.
